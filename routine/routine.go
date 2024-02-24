@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 )
 
-const defaultGracefulShutdownPeriod = time.Second * 15
+const defaultGracefulShutdownPeriod = time.Second * 10
 
 type (
 	Routine interface {
@@ -31,11 +32,12 @@ type (
 
 func NewRoutineManager(o RoutineManagerOpts) *RoutineManager {
 	routineManager := &RoutineManager{
-		logg: o.Logg,
+		logg:                   o.Logg,
+		gracefulShutdownPeriod: defaultGracefulShutdownPeriod,
 	}
 
-	if o.GracefulShutdownPeriod == 0 {
-		routineManager.gracefulShutdownPeriod = defaultGracefulShutdownPeriod
+	if o.GracefulShutdownPeriod != 0 {
+		routineManager.gracefulShutdownPeriod = o.GracefulShutdownPeriod
 	}
 
 	return routineManager
@@ -43,10 +45,9 @@ func NewRoutineManager(o RoutineManagerOpts) *RoutineManager {
 
 func (m *RoutineManager) RegisterRoutine(routine Routine) {
 	m.routines = append(m.routines, routine)
-	m.logg.Debug("registered routine", "routine", routine.Name())
 }
 
-func (m *RoutineManager) RunAll(ctx context.Context) error {
+func (m *RoutineManager) RunAll(ctx context.Context, stop context.CancelFunc) {
 	wg := sync.WaitGroup{}
 
 	for _, r := range m.routines {
@@ -55,16 +56,10 @@ func (m *RoutineManager) RunAll(ctx context.Context) error {
 			defer wg.Done()
 			m.startRoutine(ctx, r)
 		}(r)
-		m.logg.Debug("started background routine sucessfully", "routine", r.Name())
 	}
 
 	<-ctx.Done()
-	if ctx.Err() != nil {
-		m.logg.Debug("graceful shutdown triggered")
-	}
-
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), m.gracefulShutdownPeriod)
-	defer cancel()
 
 	for _, r := range m.routines {
 		wg.Add(1)
@@ -72,24 +67,34 @@ func (m *RoutineManager) RunAll(ctx context.Context) error {
 			defer wg.Done()
 			m.stopRoutine(shutdownCtx, r)
 		}(r)
-		m.logg.Debug("background routine shutdown successfully", "routine", r.Name())
 	}
 
-	wg.Wait()
-	return nil
+	go func() {
+		wg.Wait()
+		stop()
+		cancel()
+		os.Exit(0)
+	}()
+
+	<-shutdownCtx.Done()
+	if errors.Is(shutdownCtx.Err(), context.DeadlineExceeded) {
+		stop()
+		cancel()
+		m.logg.Error("graceful shutdown period exceeded, forcefully shutting down")
+	}
+	os.Exit(1)
 }
 
 func (m *RoutineManager) startRoutine(ctx context.Context, routine Routine) {
 	if err := routine.Start(ctx); err != nil {
-		m.logg.Error("error starting routine", "routine", routine.Name(), "error", err)
+		if !errors.Is(err, context.Canceled) {
+			m.logg.Error("error starting routine", "routine", routine.Name(), "error", err)
+		}
 	}
 }
 
 func (m *RoutineManager) stopRoutine(ctx context.Context, routine Routine) {
 	if err := routine.Shutdown(ctx); err != nil {
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			m.logg.Error("graceful period exceeded", "routine", routine.Name())
-		}
 		if !errors.Is(err, context.Canceled) {
 			m.logg.Error("error shutting down routine", "routine", routine.Name(), "error", err)
 		}
