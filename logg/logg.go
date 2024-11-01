@@ -31,6 +31,7 @@ type (
 const (
 	Logfmt FormatType = iota
 	Human
+	JSON
 )
 
 func NewLogg(o LoggOpts) *slog.Logger {
@@ -46,15 +47,23 @@ func NewLogg(o LoggOpts) *slog.Logger {
 			handlerOpts.AddSource = true
 		}
 		return enrichLogger(slog.New(tint.NewHandler(w, handlerOpts)), o.Component, o.Group)
+	case Logfmt:
+		return enrichLogger(slog.New(slog.NewTextHandler(w, populateHandlerOpts(o))), o.Component, o.Group)
+	case JSON:
+		return enrichLogger(slog.New(slog.NewJSONHandler(w, populateHandlerOpts(o))), o.Component, o.Group)
 	default:
-		handlerOpts := &slog.HandlerOptions{
-			Level: o.LogLevel,
-		}
-		if o.LogLevel == slog.LevelDebug {
-			handlerOpts.AddSource = true
-		}
-		return enrichLogger(slog.New(slog.NewTextHandler(w, handlerOpts)), o.Component, o.Group)
+		return enrichLogger(slog.New(slog.NewTextHandler(w, populateHandlerOpts(o))), o.Component, o.Group)
 	}
+}
+
+func populateHandlerOpts(o LoggOpts) *slog.HandlerOptions {
+	handlerOpts := &slog.HandlerOptions{
+		Level: o.LogLevel,
+	}
+	if o.LogLevel == slog.LevelDebug {
+		handlerOpts.AddSource = true
+	}
+	return handlerOpts
 }
 
 func enrichLogger(baseLogger *slog.Logger, component string, group string) *slog.Logger {
