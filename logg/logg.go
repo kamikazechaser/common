@@ -34,6 +34,8 @@ const (
 	JSON
 )
 
+// NewLogg creates a new logger with the given options.
+// Default log format is Logfmt.
 func NewLogg(o LoggOpts) *slog.Logger {
 	w := os.Stderr
 
