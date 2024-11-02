@@ -32,6 +32,10 @@ func (gp *DefaultValidator) Validate(input any) error {
 	return gp.p.Struct(input)
 }
 
+func (gp *DefaultValidator) ValidateInput(input any, tag string) error {
+	return gp.p.Var(input, tag)
+}
+
 func (gp *DefaultValidator) BindJSONAndValidate(
 	w http.ResponseWriter,
 	req *http.Request,
