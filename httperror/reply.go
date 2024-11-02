@@ -13,24 +13,27 @@ type (
 		Init(context.Context) *slog.Logger
 	}
 
-	ResponseProvider struct {
+	ReplyProvider struct {
 		logProvider Logger
 	}
 )
 
-func NewResponseProvider(logProvder Logger) *ResponseProvider {
-	return &ResponseProvider{logProvider: logProvder}
+func NewReplyProvider(logProvder Logger) *ReplyProvider {
+	return &ReplyProvider{logProvider: logProvder}
 }
 
-func (rp *ResponseProvider) Reply(w http.ResponseWriter, req *http.Request, err error) {
+func (rp *ReplyProvider) ReplyError(w http.ResponseWriter, req *http.Request, err error) {
 	if err == nil {
 		return
 	}
 	logProv := rp.logProvider.Init(req.Context())
 
+	// Support common errors here e.g.
+	// Timeouts, context cancellations, JSON parsing errors, validations etc.
+
 	httpErr, ok := err.(*httpError)
 	if !ok {
-		logProv.Info("internal server errror", "err", err)
+		logProv.Error("internal server errror", "err", err)
 		httputil.JSON(w, http.StatusInternalServerError, httpError{
 			OK:          false,
 			Description: "Internal server error",
